@@ -1,0 +1,10 @@
+# Versión antigua de la app en un solo archivo (se conserva solo en local)
+index.old-backup.html
+
+# Configuración local de herramientas
+.claude/
+
+# Sistema operativo
+Thumbs.db
+desktop.ini
+.DS_Store
