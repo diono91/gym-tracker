@@ -37,6 +37,13 @@ python3 -m http.server 8642
 
 Y abrir `http://localhost:8642`.
 
+## Créditos
+
+Las ilustraciones de los ejercicios proceden de
+[free-exercise-db](https://github.com/yuhonas/free-exercise-db), publicado bajo
+Unlicense (dominio público). Detalles y convención de nombres en
+[icons/ejercicios/CREDITOS.md](icons/ejercicios/CREDITOS.md).
+
 ## Tecnología
 
 HTML, CSS y JavaScript sin frameworks. Chart.js para las gráficas y SheetJS para la

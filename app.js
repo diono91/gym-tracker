@@ -4,6 +4,7 @@
 const ICONS = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6M14 11v6"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.6v.5"/></svg>',
   starOutline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.7-4.3 4.1 1.1 5.9L12 16.8l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.7z"/></svg>',
   starFilled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 3.5l2.6 5.4 5.9.7-4.3 4.1 1.1 5.9L12 16.8l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.7z"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7.5 11.5L12 16l4.5-4.5"/><path d="M5 19h14"/></svg>',
@@ -148,13 +149,11 @@ const MUSCLE_BADGE_GROUPS = {
   piernacas: ['Piernas']
 };
 const BADGES = [
-  {id:'first', icon:'🏁', name:'Primer entreno', desc:'Registra tu primer día de entreno.', xpValue:10, check:d=>d.workoutDays>=1},
+  {id:'perfectweek', icon:'🗓️', name:'Semana perfecta', desc:'Acumula 4 entrenos en 7 días o menos.', xpValue:35, check:d=>d.perfectWeek},
   {id:'streak7', icon:'🔥', name:'Racha de 7', desc:'Entrena 7 días seguidos.', xpValue:30, check:d=>d.maxStreak>=7},
   {id:'streak30', icon:'🌋', name:'Racha de 30', desc:'Entrena 30 días seguidos.', xpValue:100, check:d=>d.maxStreak>=30},
   {id:'days50', icon:'📅', name:'50 entrenos', desc:'Acumula 50 días de entreno.', xpValue:60, check:d=>d.workoutDays>=50},
   {id:'sets100', icon:'💯', name:'100 series', desc:'Registra 100 series en total.', xpValue:40, check:d=>d.totalSets>=100},
-  {id:'pr1', icon:'🏆', name:'Primer PR', desc:'Supera tu marca en un ejercicio.', xpValue:15, check:d=>d.prCount>=1},
-  {id:'pr10', icon:'⚡', name:'Cazador de PRs', desc:'Consigue 10 récords personales.', xpValue:80, check:d=>d.prCount>=10},
   {id:'good1', icon:'✅', name:'Entreno Bueno', desc:'Completa tu primer entreno valorado como Bueno.', xpValue:15, check:d=>d.goodDays>=1},
   {id:'goldstreak', icon:'👑', name:'Racha dorada', desc:'Encadena 5 entrenos Buenos seguidos.', xpValue:50, check:d=>d.maxGoldStreak>=5},
   {id:'pechotes', icon:'🛡️', name:'Pechotes', desc:'3 ejercicios de pecho distintos en al menos 4 días, en menos de 2 semanas.', xpValue:25, check:d=>d.pechotes},
@@ -194,10 +193,15 @@ async function migrateLegacyIfNeeded(){
   if(legacyProgram) await storageSet('gt:program', legacyProgram);
 }
 
-let state = { tab:'hoy', program:null, activeDayId:'d1', slotIndex:{}, pendingSets:{}, logs:[], measures:[], calYear:null, calMonth:null, calSelected:null, earnedBadgeIds:new Set(), defeatedBosses:[], battleChoice:null, battlePickFamily:null };
+let state = { tab:'hoy', program:null, activeDayId:'d1', slotIndex:{}, pendingSets:{}, logs:[], measures:[], calYear:null, calMonth:null, calSelected:null, earnedBadgeIds:new Set(), defeatedBosses:[], battleChoice:null, battlePickFamily:null, goals:{}, editDate:null, exerciseImages:new Set() };
 
 function dateToStr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function todayStr(){ return dateToStr(new Date()); }
+// Fecha sobre la que actúa la pestaña Hoy. Normalmente hoy, pero al editar una
+// fecha pasada desde el Calendario apunta a esa. La gamificación y la Batalla
+// siguen usando todayStr() siempre, para que editar el pasado no las altere.
+function activeDate(){ return state.editDate || todayStr(); }
+function isEditingPast(){ return !!state.editDate && state.editDate !== todayStr(); }
 function fmtDate(d){ const dt = new Date(d+'T00:00:00'); return dt.toLocaleDateString('es-ES', {day:'2-digit', month:'short'}); }
 function fmtDateLong(d){ const dt = new Date(d+'T00:00:00'); return dt.toLocaleDateString('es-ES', {weekday:'short', day:'2-digit', month:'short'}); }
 let toastQueue = []; let toastBusy = false;
@@ -226,10 +230,13 @@ async function saveProgram(){ await storageSet('gt:program', state.program); }
 async function loadData(){
   state.logs = (await storageGet('gt:logs')) || [];
   state.measures = (await storageGet('gt:measures')) || [];
-  state.earnedBadgeIds = new Set((await storageGet('gt:badges')) || []);
+  // Descarta insignias guardadas que ya no existen (p. ej. las retiradas del catálogo).
+  const validBadgeIds = new Set(BADGES.map(b=>b.id));
+  state.earnedBadgeIds = new Set(((await storageGet('gt:badges')) || []).filter(id=>validBadgeIds.has(id)));
   const legacyBosses = (await storageGet('gt:bosses')) || [];
   state.defeatedBosses = legacyBosses.map(b => typeof b === 'string' ? {date:b, monster:'goblin'} : b);
   state.battleChoice = (await storageGet('gt:battleChoice')) || null;
+  state.goals = (await storageGet('gt:goals')) || {};
   state.pendingSets = {};
   state.activeDayId = (await storageGet('gt:activeDayId')) || 'd1';
   const todayLog = state.logs.find(l=>l.date===todayStr());
@@ -379,6 +386,19 @@ function hasMuscleBlockBadge(muscleNames){
   }
   return false;
 }
+// 4 entrenos dentro de cualquier ventana de 7 días naturales.
+function hasPerfectWeek(){
+  const dates = [...allWorkoutDates()].sort();
+  for(let i=0; i<dates.length; i++){
+    const start = new Date(dates[i]+'T00:00:00');
+    const limit = new Date(start); limit.setDate(limit.getDate()+6);
+    const limitStr = toStr(limit);
+    let count = 0;
+    for(let j=i; j<dates.length && dates[j]<=limitStr; j++) count++;
+    if(count>=4) return true;
+  }
+  return false;
+}
 function computeGamification(){
   const workoutDays = allWorkoutDates().size;
   const totalSets = state.logs.reduce((s,l)=> s+((l.sets||[]).length), 0);
@@ -393,7 +413,8 @@ function computeGamification(){
   const pechotes = hasMuscleBlockBadge(MUSCLE_BADGE_GROUPS.pechotes);
   const brazacos = hasMuscleBlockBadge(MUSCLE_BADGE_GROUPS.brazacos);
   const piernacas = hasMuscleBlockBadge(MUSCLE_BADGE_GROUPS.piernacas);
-  const counts = {workoutDays, totalSets, prCount, goodDays, streak, maxStreak, maxGoldStreak, bossesDefeated, bestiaryComplete:bestiaryDone, dragonDefeated, pechotes, brazacos, piernacas};
+  const perfectWeek = hasPerfectWeek();
+  const counts = {workoutDays, totalSets, prCount, goodDays, streak, maxStreak, maxGoldStreak, bossesDefeated, bestiaryComplete:bestiaryDone, dragonDefeated, perfectWeek, pechotes, brazacos, piernacas};
   const baseXp = computeBaseXp();
 
   let level = levelFromXP(Math.max(0,baseXp)).level;
@@ -473,6 +494,36 @@ function refreshMeter(){
 /* ---------------- Batalla (familias por día + Dragón Anciano) ---------------- */
 
 function monsterImg(file){ return `icons/monsters/${file}`; }
+
+// Ruta por convención: icons/ejercicios/<Músculo>/<nombre-en-slug>.webp
+// Si el archivo no existe la miniatura se oculta sola (onerror), así se pueden
+// ir añadiendo imágenes sin tocar el código.
+function slugify(str){
+  return str.normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+}
+function exerciseImgPath(muscle, exerciseName){
+  if(!muscle || !exerciseName) return null;
+  return `icons/ejercicios/${muscle}/${slugify(exerciseName)}.webp`;
+}
+// El botón solo se dibuja si existe la imagen, según el índice cargado al arrancar.
+function hasExerciseImg(muscle, exerciseName){
+  if(!muscle || !exerciseName) return false;
+  return state.exerciseImages.has(`${muscle}/${slugify(exerciseName)}`);
+}
+function exerciseInfoBtnHtml(muscle, exerciseName){
+  if(!hasExerciseImg(muscle, exerciseName)) return '';
+  const src = exerciseImgPath(muscle, exerciseName);
+  return `<button class="ex-info-btn" data-eximg="${src}" data-exname="${exerciseName}"
+    aria-label="Ver cómo se hace ${exerciseName}" title="Ver cómo se hace">${ICONS.info}</button>`;
+}
+function openExerciseImgModal(src, name){
+  const box = $('#modalBox');
+  box.innerHTML = `<div class="modal-title">${name} <button class="modal-close" id="modalCloseBtn">${ICONS.x}</button></div>
+    <img src="${src}" alt="${name}" style="width:100%;border-radius:12px;background:var(--panel-2);">`;
+  $('#modalOverlay').classList.add('open');
+  $('#modalCloseBtn').addEventListener('click', closeModal);
+}
 
 function dayStatsFor(dateStr){
   const logs = logsForDate(dateStr);
@@ -796,10 +847,16 @@ function renderHoy(){
     return `<div class="category-block"><div class="category-title">${CAT_LABELS[cat]} <span class="pill">${slots.length}</span></div>${slots.map(s=>renderSlot(day, s)).join('')}</div>`;
   }).join('');
 
-  return `<div class="section-label">Elige tu día</div>${dayRowHtml()}${meterCardHtml()}${catsHtml}`;
+  const editBanner = isEditingPast()
+    ? `<div class="edit-banner">
+         <div><b>Editando ${fmtDateLong(state.editDate)}</b><span>Los cambios se guardan en esa fecha, no en hoy.</span></div>
+         <button class="btn" id="exitEditBtn">Salir</button>
+       </div>`
+    : '';
+  return `${editBanner}<div class="section-label">Elige tu día</div>${dayRowHtml()}${meterCardHtml()}${catsHtml}`;
 }
 
-function slotLoggedToday(slotId){ const t = todayStr(); return state.logs.find(l=>l.date===t && l.slotId===slotId); }
+function slotLoggedToday(slotId){ const t = activeDate(); return state.logs.find(l=>l.date===t && l.slotId===slotId); }
 
 function renderSlot(day, slot){
   const idx = state.slotIndex[slot.id] || 0;
@@ -867,7 +924,10 @@ function renderSlot(day, slot){
           ${slot.cat!=='calentamiento' ? `<button class="delete-btn" data-deleteslot="${slot.id}" title="Eliminar este ejercicio de hoy">${ICONS.x}</button>` : ''}
         </div>
       </div>
-      <div class="exercise-name">${exName}${isStar ? ` <span class="star-mark">${ICONS.starFilled}</span>` : ''}</div>
+      <div class="exercise-name-row">
+        <div class="exercise-name">${exName}${isStar ? ` <span class="star-mark">${ICONS.starFilled}</span>` : ''}</div>
+        ${slot.cat==='principal' ? exerciseInfoBtnHtml(slot.muscle, exName) : ''}
+      </div>
       ${bodyHtml}
     </div>
   `;
@@ -914,14 +974,20 @@ function openIoModal(){
     <p class="io-desc">Descarga toda tu información (entrenos registrados, medidas y tu programa personalizado) en un Excel. Si algún día pierdes la app o cambias de móvil, puedes volver a cargarlo desde aquí.</p>
     <button class="btn btn-save" style="width:100%; margin-top:6px;" id="exportBtn">${ICONS.download} Exportar a Excel</button>
     <div class="io-divider">o</div>
-    <label class="btn btn-add-set" style="width:100%; cursor:pointer;" id="importLabel">${ICONS.upload} Importar desde Excel</label>
-    <input type="file" id="importInput" accept=".xlsx" style="display:none;">
+    <label class="btn btn-add-set" for="importInput" style="width:100%; cursor:pointer;" id="importLabel">${ICONS.upload} Importar desde Excel</label>
+    <input type="file" id="importInput" class="visually-hidden"
+      accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
     <p class="io-warn">Importar sustituye los datos que tengas ahora mismo en este dispositivo.</p>
   `;
   $('#modalOverlay').classList.add('open');
   $('#modalCloseBtn').addEventListener('click', closeModal);
   $('#exportBtn').addEventListener('click', exportExcel);
-  $('#importInput').addEventListener('change', (e)=>{ const file = e.target.files[0]; if(file) importExcel(file); });
+  $('#importInput').addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    // Se limpia el valor para que volver a elegir el mismo archivo dispare 'change'.
+    e.target.value = '';
+    if(file) importExcel(file);
+  });
 }
 
 function openBadgesModal(g){
@@ -1049,12 +1115,14 @@ async function wipeAllData(){
   state.earnedBadgeIds = new Set();
   state.battleChoice = null;
   state.battlePickFamily = null;
+  state.goals = {};
   await saveLogs();
   await saveMeasures();
   await saveProgram();
   await storageSet('gt:bosses', []);
   await storageSet('gt:badges', []);
   await storageSet('gt:battleChoice', null);
+  await storageSet('gt:goals', {});
   await storageSet('gt:lastBackup', null);
   showToast('Datos borrados');
   render();
@@ -1137,7 +1205,7 @@ function bindSlotEvents(el){
     const exName = slot.alts[idx % slot.alts.length].name;
     const sets = (state.pendingSets[slotId]||[]).filter(s=>Object.values(s).some(v=>v!==''));
     if(!sets.length){ showToast('Añade al menos un dato'); return; }
-    const t = todayStr();
+    const t = activeDate();
     state.logs = state.logs.filter(l=>!(l.date===t && l.slotId===slotId));
     state.logs.push({ id: Date.now()+'-'+slotId, date: t, dayId: day.id, slotId, cat: slot.cat, muscle: slot.muscle, exercise: exName, sets: sets.map(s=>({...s})) });
     await saveLogs();
@@ -1150,7 +1218,7 @@ function bindSlotEvents(el){
     const slot = day.slots.find(s=>s.id===slotId);
     const idx = state.slotIndex[slotId] || 0;
     const exName = slot.alts[idx % slot.alts.length].name;
-    const t = todayStr();
+    const t = activeDate();
     const already = state.logs.find(l=>l.date===t && l.slotId===slotId && l.exercise===exName);
     if(already){ state.logs = state.logs.filter(l=>l.id!==already.id); }
     else{ state.logs = state.logs.filter(l=>!(l.date===t && l.slotId===slotId)); state.logs.push({id:Date.now()+'-'+slotId, date:t, dayId:day.id, slotId, cat:slot.cat, muscle:slot.muscle, exercise:exName, sets:[]}); }
@@ -1181,25 +1249,39 @@ function bindSlotEvents(el){
 /* ---------------- Tab: Medidas ---------------- */
 
 let measuresChart = null;
+// Para cada medida devuelve el último valor registrado, aunque venga de días
+// distintos: si un día solo anotas el peso, el resto conserva su valor previo.
+function mergedLatestMeasures(){
+  const sorted = [...state.measures].sort((a,b)=>a.date.localeCompare(b.date));
+  const out = {};
+  MEASURE_FIELDS.forEach(f=>{
+    for(let i=sorted.length-1; i>=0; i--){
+      const v = sorted[i][f.key];
+      if(v!=='' && v!=null){ out[f.key] = v; out[f.key+'_date'] = sorted[i].date; break; }
+    }
+  });
+  return out;
+}
 function latestSummaryHtml(m){
   const val = (k, suf) => (m && m[k] !== undefined && m[k] !== '' && m[k] != null) ? m[k]+suf : '–';
+  const goal = (k, suf) => (state.goals && state.goals[k]) ? `<span class="ls-goal">obj ${state.goals[k]}${suf}</span>` : '';
   return `
     <div class="ls-weight">${val('peso',' kg')}</div>
-    <div class="ls-sub">Peso actual</div>
+    <div class="ls-sub">Peso actual ${state.goals && state.goals.peso ? `· objetivo ${state.goals.peso} kg` : ''}</div>
     <div class="ls-grid">
-      <div class="ls-item"><span class="ls-label">Pecho</span><span class="ls-val">${val('pecho',' cm')}</span></div>
-      <div class="ls-item"><span class="ls-label">Bíceps</span><span class="ls-val">${val('biceps',' cm')}</span></div>
-      <div class="ls-item"><span class="ls-label">Cintura</span><span class="ls-val">${val('cintura',' cm')}</span></div>
-      <div class="ls-item"><span class="ls-label">Cadera</span><span class="ls-val">${val('cadera',' cm')}</span></div>
-      <div class="ls-item"><span class="ls-label">Muslo</span><span class="ls-val">${val('muslo',' cm')}</span></div>
-      <div class="ls-item"><span class="ls-label">Gemelo</span><span class="ls-val">${val('gemelo',' cm')}</span></div>
+      <div class="ls-item"><span class="ls-label">Pecho</span><span class="ls-val">${val('pecho',' cm')}</span>${goal('pecho','')}</div>
+      <div class="ls-item"><span class="ls-label">Bíceps</span><span class="ls-val">${val('biceps',' cm')}</span>${goal('biceps','')}</div>
+      <div class="ls-item"><span class="ls-label">Cintura</span><span class="ls-val">${val('cintura',' cm')}</span>${goal('cintura','')}</div>
+      <div class="ls-item"><span class="ls-label">Cadera</span><span class="ls-val">${val('cadera',' cm')}</span>${goal('cadera','')}</div>
+      <div class="ls-item"><span class="ls-label">Muslo</span><span class="ls-val">${val('muslo',' cm')}</span>${goal('muslo','')}</div>
+      <div class="ls-item"><span class="ls-label">Gemelo</span><span class="ls-val">${val('gemelo',' cm')}</span>${goal('gemelo','')}</div>
     </div>
   `;
 }
 function renderMedidas(){
   const fieldsHtml = MEASURE_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><input type="number" inputmode="decimal" id="mf-${f.key}" placeholder="—"></div>`).join('');
   const sorted = [...state.measures].sort((a,b)=>a.date.localeCompare(b.date));
-  const latest = sorted.length ? sorted[sorted.length-1] : {};
+  const latest = mergedLatestMeasures();
   const options = MEASURE_FIELDS.map(f=>`<option value="${f.key}">${f.label}</option>`).join('');
   const historyHtml = sorted.length ? [...sorted].reverse().map(m=>`
     <div class="history-row">
@@ -1215,6 +1297,7 @@ function renderMedidas(){
       <div class="measure-grid">${fieldsHtml}</div>
       <button class="btn btn-save" style="width:100%; margin-top:12px;" id="saveMeasureBtn">Guardar medidas de hoy</button>
     </div>
+    <button class="add-slot-btn" id="goalsBtn" style="margin-top:10px;">${ICONS.trend} Definir objetivos</button>
     <div class="chart-card">
       <div class="chart-head"><strong>Evolución</strong><select id="measureMetric">${options}</select></div>
       <canvas id="measuresCanvas" height="180"></canvas>
@@ -1232,15 +1315,45 @@ const MEASURE_NEON = {
   muslo:{line:'#2f7fd6', glow:'rgba(47,127,214,0.5)', point:'#8fb9e8', fill:'rgba(47,127,214,0.1)'},
   gemelo:{line:'#c77dff', glow:'rgba(199,125,255,0.5)', point:'#dcaeff', fill:'rgba(199,125,255,0.1)'}
 };
+function openGoalsModal(){
+  const box = $('#modalBox');
+  const rows = MEASURE_FIELDS.map(f=>`
+    <div class="field"><label>${f.label}</label>
+      <input type="number" inputmode="decimal" id="gf-${f.key}" placeholder="—" value="${state.goals[f.key]!=null?state.goals[f.key]:''}">
+    </div>`).join('');
+  box.innerHTML = `<div class="modal-title">Objetivos <button class="modal-close" id="modalCloseBtn">${ICONS.x}</button></div>
+    <p class="io-desc">Se dibujarán como una línea horizontal en la gráfica de evolución. Deja un campo vacío para no fijar objetivo.</p>
+    <div class="measure-grid">${rows}</div>
+    <button class="btn btn-save" style="width:100%;margin-top:14px;" id="saveGoalsBtn">Guardar objetivos</button>`;
+  $('#modalOverlay').classList.add('open');
+  $('#modalCloseBtn').addEventListener('click', closeModal);
+  $('#saveGoalsBtn').addEventListener('click', async ()=>{
+    const next = {};
+    MEASURE_FIELDS.forEach(f=>{
+      const v = $('#gf-'+f.key).value.trim();
+      if(v!=='' && !isNaN(parseFloat(v))) next[f.key] = parseFloat(v);
+    });
+    state.goals = next;
+    await storageSet('gt:goals', next);
+    closeModal();
+    showToast('Objetivos guardados ✓');
+    render();
+  });
+}
 function drawMeasuresChart(metric){
   const canvas = $('#measuresCanvas');
   if(!canvas) return;
   const sorted = [...state.measures].filter(m=>m[metric]!=='' && m[metric]!=null).sort((a,b)=>a.date.localeCompare(b.date));
   if(measuresChart){ measuresChart.destroy(); }
   const neon = MEASURE_NEON[metric] || MEASURE_NEON.peso;
+  const rawGoal = state.goals ? state.goals[metric] : null;
+  const goalValue = (rawGoal!=='' && rawGoal!=null && !isNaN(parseFloat(rawGoal))) ? parseFloat(rawGoal) : null;
   measuresChart = new Chart(canvas, {
     type:'line',
-    data:{ labels: sorted.map(m=>fmtDate(m.date)), datasets:[{ data: sorted.map(m=>m[metric]), borderColor:neon.line, backgroundColor:neon.fill, borderWidth:2.5, pointRadius:3.5, pointBackgroundColor:neon.point, pointBorderColor:neon.line, tension:.3, fill:true }] },
+    data:{ labels: sorted.map(m=>fmtDate(m.date)), datasets:[
+      { data: sorted.map(m=>m[metric]), borderColor:neon.line, backgroundColor:neon.fill, borderWidth:2.5, pointRadius:3.5, pointBackgroundColor:neon.point, pointBorderColor:neon.line, tension:.3, fill:true },
+      ...(goalValue!=null ? [{ label:'Objetivo', data: sorted.map(()=>goalValue), borderColor:'#f2b705', borderWidth:1.8, borderDash:[6,5], pointRadius:0, fill:false, tension:0 }] : [])
+    ] },
     options:{ plugins:{legend:{display:false}}, scales:{ y:{grid:{color:'rgba(255,255,255,.06)'}, ticks:{color:'#9a9d9f', font:{size:10.5}}}, x:{grid:{display:false}, ticks:{color:'#9a9d9f', font:{size:10.5}}} } }
   });
 }
@@ -1383,6 +1496,17 @@ const MONTH_LABELS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','
 
 function ymd(y,m,d){ return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
 
+// Qué día de rutina (d1..d5) se entrenó en una fecha, según los propios registros.
+function trainingDayIdFor(dateStr){
+  const log = state.logs.find(l=>l.date===dateStr && l.dayId);
+  return log ? log.dayId : null;
+}
+function trainingDayLabelFor(dateStr){
+  const id = trainingDayIdFor(dateStr);
+  if(!id) return null;
+  const day = state.program.days.find(d=>d.id===id);
+  return day ? `${day.name} · ${day.subtitle}` : null;
+}
 function calGridHtml(){
   const y = state.calYear, m = state.calMonth;
   const first = new Date(y, m, 1);
@@ -1398,7 +1522,9 @@ function calGridHtml(){
     if(q) cls.push('q-'+q);
     if(dateStr===todayS) cls.push('today');
     if(dateStr===state.calSelected) cls.push('selected');
-    cells += `<div class="${cls.join(' ')}" data-date="${dateStr}">${d}${q?'<span class="dot"></span>':''}</div>`;
+    const dayId = trainingDayIdFor(dateStr);
+    const dayTag = dayId ? `<span class="cal-day-tag">${dayId.replace('d','D')}</span>` : '';
+    cells += `<div class="${cls.join(' ')}" data-date="${dateStr}">${d}${dayTag}${q?'<span class="dot"></span>':''}</div>`;
   }
   return cells;
 }
@@ -1409,7 +1535,7 @@ function dayDetailHtml(dateStr){
   const meas = state.measures.find(m=>m.date===dateStr);
   const q = classifyDay(dateStr);
   if(!logs.length && !meas){
-    return `<div class="day-detail-head"><h3>${fmtDateLong(dateStr)}</h3></div><div class="empty-state"><p>No hay ningún registro este día.</p></div>`;
+    return `<div class="day-detail-head"><h3>${fmtDateLong(dateStr)}</h3></div><div class="empty-state"><p>No hay ningún registro este día.</p></div><button class="add-slot-btn" data-editday="${dateStr}">${ICONS.swap} Registrar en este día</button>`;
   }
   const catOrder = {calentamiento:0, principal:1, estiramiento:2};
   const sorted = [...logs].sort((a,b)=>(catOrder[a.cat]-catOrder[b.cat]));
@@ -1424,10 +1550,11 @@ function dayDetailHtml(dateStr){
   const measHtml = meas ? `<div class="dd-exercise"><div class="dd-exercise-name">Medidas del día</div><div class="dd-sets">${MEASURE_FIELDS.filter(f=>meas[f.key]!=='' && meas[f.key]!=null).map(f=>`${f.label}: <b>${meas[f.key]}</b>`).join(' · ') || '—'}</div></div>` : '';
   return `
     <div class="day-detail-head">
-      <h3>${fmtDateLong(dateStr)}</h3>
+      <h3>${fmtDateLong(dateStr)}${trainingDayLabelFor(dateStr) ? `<span class="dd-day">${trainingDayLabelFor(dateStr)}</span>` : ''}</h3>
       ${q ? `<span class="day-detail-tag q-${q}" style="background:${q==='bueno'?'var(--green-dim)':q==='mediocre'?'var(--yellow-dim)':'var(--red-dim)'};color:${q==='bueno'?'var(--green)':q==='mediocre'?'var(--yellow)':'var(--red)'}">${QUALITY_LABEL[q]}</span>` : ''}
     </div>
     ${exercisesHtml}${measHtml}
+    <button class="add-slot-btn" data-editday="${dateStr}">${ICONS.swap} Editar este día</button>
   `;
 }
 
@@ -1473,21 +1600,40 @@ function selectCalDay(dateStr){
 
 /* ---------------- Tab handlers ---------------- */
 
+function enterEditMode(dateStr){
+  state.editDate = dateStr;
+  state.pendingSets = {};
+  const loggedDay = trainingDayIdFor(dateStr);
+  if(loggedDay) state.activeDayId = loggedDay;
+  state.tab = 'hoy';
+  render();
+  showToast(`Editando ${fmtDate(dateStr)}`);
+}
+function exitEditMode(){
+  state.editDate = null;
+  state.pendingSets = {};
+  state.tab = 'calendario';
+  render();
+}
 function bindDayChips(){
   $$('.day-chip').forEach(el=>{
     el.addEventListener('click', async ()=>{
       const newDay = el.dataset.day;
       if(newDay === state.activeDayId) return;
-      const todayLogs = state.logs.filter(l=>l.date===todayStr());
+      const target = activeDate();
+      const todayLogs = state.logs.filter(l=>l.date===target);
       if(todayLogs.length>0){
-        if(!confirm('Cambiar de día de entrenamiento borrará el progreso que has registrado hoy. ¿Quieres continuar?')) return;
-        state.logs = state.logs.filter(l=>l.date!==todayStr());
+        const msg = isEditingPast()
+          ? `Cambiar de día de entrenamiento borrará lo registrado el ${fmtDate(target)}. ¿Quieres continuar?`
+          : 'Cambiar de día de entrenamiento borrará el progreso que has registrado hoy. ¿Quieres continuar?';
+        if(!confirm(msg)) return;
+        state.logs = state.logs.filter(l=>l.date!==target);
         state.pendingSets = {};
         await saveLogs();
-        showToast('Progreso de hoy borrado');
+        showToast(isEditingPast() ? 'Registros del día borrados' : 'Progreso de hoy borrado');
       }
       state.activeDayId = newDay;
-      await storageSet('gt:activeDayId', newDay);
+      if(!isEditingPast()) await storageSet('gt:activeDayId', newDay);
       render();
     });
   });
@@ -1496,6 +1642,8 @@ function bindDayChips(){
 function attachTabHandlers(){
   if(state.tab==='hoy'){
     bindDayChips();
+    const exitEditBtn = $('#exitEditBtn');
+    if(exitEditBtn) exitEditBtn.addEventListener('click', exitEditMode);
     $$('.slot').forEach(el=>bindSlotEvents(el));
     $$('[data-add-zone]').forEach(el=>{ el.addEventListener('click', ()=>{ openAddExerciseModal(el.dataset.addZone); }); });
   }
@@ -1519,6 +1667,7 @@ function attachTabHandlers(){
         render();
       });
     });
+    $('#goalsBtn').addEventListener('click', openGoalsModal);
     const metricSel = $('#measureMetric');
     metricSel.addEventListener('change', ()=>drawMeasuresChart(metricSel.value));
     drawMeasuresChart(metricSel.value);
@@ -1578,11 +1727,15 @@ function attachTabHandlers(){
 
 function attachGlobalHandlers(){
   $('#main').addEventListener('click', (e)=>{
+    const thumb = e.target.closest('[data-eximg]');
+    if(thumb){ e.stopPropagation(); openExerciseImgModal(thumb.dataset.eximg, thumb.dataset.exname); return; }
     if(state.tab==='progreso'){
       const item = e.target.closest('.evo-item');
       if(item){ toggleEvoDetail(item); return; }
     }
     if(state.tab==='calendario'){
+      const editBtn = e.target.closest('[data-editday]');
+      if(editBtn){ enterEditMode(editBtn.dataset.editday); return; }
       const day = e.target.closest('.cal-day');
       if(day && !day.classList.contains('empty')){ selectCalDay(day.dataset.date); return; }
     }
@@ -1592,6 +1745,9 @@ function attachGlobalHandlers(){
     if(!btn) return;
     state.tab = btn.dataset.tab;
     if(state.tab !== 'batalla') state.battlePickFamily = null;
+    // Salir de la pestaña Hoy abandona el modo edición, para no guardar sin querer
+    // en una fecha pasada al volver más tarde.
+    if(state.tab !== 'hoy' && state.editDate){ state.editDate = null; state.pendingSets = {}; }
     render();
   });
   $('#modalOverlay').addEventListener('click', (e)=>{ if(e.target.id === 'modalOverlay') closeModal(); });
@@ -1614,8 +1770,17 @@ async function maybeShowBackupReminder(){
   }
 }
 
+// Índice de imágenes disponibles. Si falla, simplemente no se muestran los
+// botones de información: la app funciona igual.
+async function loadExerciseImageIndex(){
+  try{
+    const r = await fetch('icons/ejercicios/index.json');
+    if(r.ok) state.exerciseImages = new Set(await r.json());
+  }catch(e){}
+}
 async function init(){
   await migrateLegacyIfNeeded();
+  await loadExerciseImageIndex();
   await loadProgram();
   await loadData();
   attachGlobalHandlers();

@@ -98,6 +98,32 @@ main{padding:4px 16px 24px;flex:1;}
 .meter-msg.q-mediocre{color:var(--yellow);background:var(--yellow-dim);border-color:rgba(242,183,5,.35);}
 .meter-msg.q-malo{color:var(--red);background:var(--red-dim);border-color:rgba(232,67,63,.35);}
 
+/* Oculta el input de archivo sin usar display:none, que en algunos navegadores
+   móviles impide que el <label> lo active. */
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
+
+/* ---------- Botón de información del ejercicio ---------- */
+.exercise-name-row{display:flex;align-items:center;gap:8px;}
+.exercise-name-row .exercise-name{flex:1;min-width:0;}
+.ex-info-btn{flex:none;width:28px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--line);border-radius:50%;color:var(--muted-2);cursor:pointer;transition:color .15s ease,border-color .15s ease,transform .1s ease;}
+.ex-info-btn svg{width:15px;height:15px;}
+.ex-info-btn:hover{color:var(--blue);border-color:var(--blue);}
+.ex-info-btn:active{transform:scale(.9);}
+
+/* ---------- Objetivos de medidas ---------- */
+.ls-goal{display:block;font-size:9.5px;font-weight:700;color:var(--yellow);margin-top:1px;}
+
+/* ---------- Modo edición de fecha pasada ---------- */
+.edit-banner{display:flex;align-items:center;gap:12px;background:linear-gradient(160deg,rgba(242,183,5,.16),var(--panel) 70%);border:1px solid rgba(242,183,5,.4);border-radius:var(--radius);padding:12px 14px;margin-bottom:4px;}
+.edit-banner div{flex:1;min-width:0;}
+.edit-banner b{display:block;font-size:13.5px;color:var(--ink);}
+.edit-banner span{font-size:11.5px;color:var(--muted);}
+.edit-banner .btn{flex:none;padding:8px 14px;font-size:12px;}
+
+/* ---------- Etiqueta de día en el calendario ---------- */
+.cal-day-tag{position:absolute;top:3px;right:4px;font-size:7.5px;font-weight:700;color:var(--muted-2);letter-spacing:.02em;}
+.dd-day{display:block;font-size:11.5px;font-weight:600;color:var(--blue);margin-top:2px;text-transform:none;letter-spacing:0;}
+
 /* ---------- Batalla ---------- */
 .element-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
 .element-card{display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 10px;cursor:pointer;transition:border-color .15s ease,transform .1s ease;}
