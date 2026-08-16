@@ -193,7 +193,7 @@ async function migrateLegacyIfNeeded(){
   if(legacyProgram) await storageSet('gt:program', legacyProgram);
 }
 
-let state = { tab:'hoy', program:null, activeDayId:'d1', slotIndex:{}, pendingSets:{}, logs:[], measures:[], calYear:null, calMonth:null, calSelected:null, earnedBadgeIds:new Set(), defeatedBosses:[], battleChoice:null, battlePickFamily:null, goals:{}, editDate:null, exerciseImages:new Set() };
+let state = { tab:'hoy', program:null, activeDayId:'d1', slotIndex:{}, pendingSets:{}, logs:[], measures:[], calYear:null, calMonth:null, calSelected:null, earnedBadgeIds:new Set(), defeatedBosses:[], battleChoice:null, battlePickFamily:null, goals:{}, editDate:null, exerciseImages:new Set(), equippedSet:null };
 
 function dateToStr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function todayStr(){ return dateToStr(new Date()); }
@@ -237,6 +237,16 @@ async function loadData(){
   state.defeatedBosses = legacyBosses.map(b => typeof b === 'string' ? {date:b, monster:'goblin'} : b);
   state.battleChoice = (await storageGet('gt:battleChoice')) || null;
   state.goals = (await storageGet('gt:goals')) || {};
+  state.equippedSet = (await storageGet('gt:equippedSet')) || null;
+  // Si el set guardado ya no es válido, o nunca se eligió uno, viste el primero
+  // completo que haya: el premio debe verse sin tener que ir a buscarlo.
+  if(!state.equippedSet || !setCompleto(state.equippedSet)){
+    const disponible = setsCompletos()[0] || null;
+    if(state.equippedSet !== disponible){
+      state.equippedSet = disponible;
+      await storageSet('gt:equippedSet', disponible);
+    }
+  }
   state.pendingSets = {};
   state.activeDayId = (await storageGet('gt:activeDayId')) || 'd1';
   const todayLog = state.logs.find(l=>l.date===todayStr());
@@ -448,7 +458,31 @@ function checkBadgesAndNotify(){
 
 /* ---------------- Root render ---------------- */
 
-function renderChrome(){ $$('.tab-btn').forEach(b=>{ b.classList.toggle('active', b.dataset.tab === state.tab); }); }
+function renderChrome(){
+  $$('.tab-btn').forEach(b=>{ b.classList.toggle('active', b.dataset.tab === state.tab); });
+  // El ambiente (fondo y escenario) lo gobiernan estos dos atributos desde CSS.
+  const app = document.getElementById('app');
+  if(app){
+    app.dataset.tab = state.tab;
+    const amb = elementoAmbiente();
+    if(amb) app.dataset.elem = amb; else delete app.dataset.elem;
+  }
+  renderHeroScene();
+}
+// Héroe a la izquierda y, si hoy hay combate, el rival enfrentado a la derecha.
+function renderHeroScene(){
+  const cont = document.getElementById('heroScene');
+  if(!cont) return;
+  const heroe = heroeActual();
+  const activo = state.battleChoice && state.battleChoice.date===todayStr() ? state.battleChoice.monster : null;
+  const def = activo ? findMonsterDef(activo) : null;
+  const vencidoHoy = activo && state.defeatedBosses.some(b=>b.date===todayStr() && b.monster===activo);
+  cont.innerHTML = `
+    <img class="hs-hero" src="${heroe.img}" alt="Tu héroe">
+    ${def ? `<img class="hs-foe ${vencidoHoy?'vencido':''}" src="${monsterImg(def.img)}" alt="${def.name}">` : ''}
+  `;
+  cont.classList.toggle('en-combate', !!def);
+}
 function updateTopbarStreak(){
   const el = document.getElementById('topbarStreak');
   if(!el) return;
@@ -642,6 +676,51 @@ const FAMILIES = {
 };
 const ALL_FAMILY_MONSTER_IDS = Object.values(FAMILIES).flatMap(f=>f.tiers.map(t=>t.id));
 
+/* ---------------- Héroe y equipamiento ---------------- */
+// Cada tier otorga una pieza: el Slime da las botas y el jefe de la familia, el arma.
+const EQUIPO_POR_TIER = ['botas','coraza','casco','espada'];
+const EQUIPO_LABEL = {botas:'Botas', coraza:'Coraza', casco:'Casco', espada:'Espada'};
+const ELEMENT_KEYS = ['fuego','tierra','viento','agua'];
+
+function temaImg(file){ return `icons/tema/${file}`; }
+// 'fuego2' -> {el:'fuego', tierIndex:1, pieza:'coraza'}
+function equipoDeMonstruo(monsterId){
+  const m = /^([a-z]+)(\d)$/.exec(monsterId||'');
+  if(!m || !FAMILIES[m[1]]) return null;
+  const tierIndex = parseInt(m[2],10) - 1;
+  const pieza = EQUIPO_POR_TIER[tierIndex];
+  return pieza ? {el:m[1], tierIndex, pieza} : null;
+}
+function piezaGanada(el, pieza){
+  const tierIndex = EQUIPO_POR_TIER.indexOf(pieza);
+  if(tierIndex < 0) return false;
+  return defeatCount(`${el}${tierIndex+1}`) > 0;
+}
+function setCompleto(el){ return EQUIPO_POR_TIER.every(p=>piezaGanada(el,p)); }
+function setsCompletos(){ return ELEMENT_KEYS.filter(setCompleto); }
+function totalPiezasGanadas(){
+  return ELEMENT_KEYS.reduce((n,el)=> n + EQUIPO_POR_TIER.filter(p=>piezaGanada(el,p)).length, 0);
+}
+// El héroe solo viste un set cuando está completo; si no, aparece sin equipo.
+function heroeActual(){
+  const eq = state.equippedSet;
+  if(eq && setCompleto(eq)) return {el:eq, img:temaImg(`heroe-${eq}.webp`)};
+  return {el:null, img:temaImg('heroe-base.webp')};
+}
+async function equiparSet(el){
+  state.equippedSet = (el && setCompleto(el)) ? el : null;
+  await storageSet('gt:equippedSet', state.equippedSet);
+  render();
+}
+// Elemento que ambienta la pantalla: el del rival de hoy, si lo hay.
+function elementoAmbiente(){
+  const activo = state.battleChoice && state.battleChoice.date===todayStr() ? state.battleChoice.monster : null;
+  if(!activo) return null;
+  if(activo==='dragon') return 'dragon';
+  const eq = equipoDeMonstruo(activo);
+  return eq ? eq.el : null;
+}
+
 const DRAGON_GROUPS = ['Pecho','Bíceps','Tríceps','Espalda','Hombros','Piernas','Core'];
 const DRAGON = {
   id:'dragon', name:'Dragón Anciano', img:'dragon-anciano.png', reward:150,
@@ -691,6 +770,15 @@ function checkMonsterDefeat(monsterId, result){
     state.defeatedBosses.push({date:t, monster:monsterId});
     persistDefeatedBosses();
     showToast(`🏆 ¡${def.name} derrotado! (${defeatCount(monsterId)}×) +${def.reward} XP`);
+    // Primera victoria sobre este rival: entrega su pieza de equipo.
+    const eq = equipoDeMonstruo(monsterId);
+    if(eq && defeatCount(monsterId)===1){
+      setTimeout(()=> showToast(`🛡️ Consigues ${EQUIPO_LABEL[eq.pieza]} de ${FAMILIES[eq.el].name}`), 1500);
+      if(setCompleto(eq.el)){
+        setTimeout(()=> showToast(`⚔️ ¡Equipo de ${FAMILIES[eq.el].name} completo!`), 3000);
+        if(!state.equippedSet){ state.equippedSet = eq.el; storageSet('gt:equippedSet', eq.el); }
+      }
+    }
     checkBadgesAndNotify();
   }
 }
@@ -773,6 +861,28 @@ function battleViewHtml(monsterId){
     <p class="io-desc">Ya has elegido tu rival de hoy. Mañana podrás enfrentarte a otro.</p>
   `;
 }
+function armoryHtml(){
+  const filas = ELEMENT_KEYS.map(el=>{
+    const fam = FAMILIES[el];
+    const completo = setCompleto(el);
+    const equipado = state.equippedSet === el;
+    const celdas = EQUIPO_POR_TIER.map(p=>{
+      const tengo = piezaGanada(el,p);
+      return `<div class="armory-cell ${tengo?'':'locked'}" title="${EQUIPO_LABEL[p]} de ${fam.name}">
+        <img src="${temaImg(`equipo-${el}-${p}.webp`)}" alt="${EQUIPO_LABEL[p]} de ${fam.name}" loading="lazy">
+      </div>`;
+    }).join('');
+    const n = EQUIPO_POR_TIER.filter(p=>piezaGanada(el,p)).length;
+    const boton = completo
+      ? `<button class="set-equip-btn ${equipado?'on':''}" data-equip="${equipado?'':el}">${equipado?'Equipado':'Equipar'}</button>`
+      : '';
+    return `<div class="armory-row-label">${fam.name} <span class="${completo?'done':''}">${n}/4</span>${boton}</div>
+            <div class="armory-grid">${celdas}</div>`;
+  }).join('');
+  return `<div class="section-label">Armería (${totalPiezasGanadas()}/16)</div>
+    <p class="io-desc">Cada monstruo derrotado entrega una pieza de su elemento. Al reunir las cuatro de un elemento podrás vestir el equipo completo.</p>
+    ${filas}`;
+}
 function bestiaryProgressHtml(){
   const done = ALL_FAMILY_MONSTER_IDS.filter(id=>state.defeatedBosses.some(b=>b.monster===id)).length;
   return `<div class="section-label">Bestiario (${done}/${ALL_FAMILY_MONSTER_IDS.length}) — <a href="#" id="bestiaryLink">ver todos</a></div>`;
@@ -819,7 +929,7 @@ function renderBatalla(){
     : battleSelectHtml();
   const g = computeGamification();
   const gamiSection = gamiHeaderHtml(g) + badgesGridHtml(g);
-  return gamiSection + `<div style="margin-top:22px;">${battleDayBannerHtml()}</div><div style="margin-top:14px;">${bestiaryProgressHtml()}</div><div style="margin-top:10px;">${battleSection}</div>`;
+  return gamiSection + `<div style="margin-top:22px;">${battleDayBannerHtml()}</div><div style="margin-top:14px;">${bestiaryProgressHtml()}</div><div style="margin-top:10px;">${battleSection}</div><div style="margin-top:26px;">${armoryHtml()}</div>`;
 }
 
 function renderHoy(){
@@ -1116,6 +1226,7 @@ async function wipeAllData(){
   state.battleChoice = null;
   state.battlePickFamily = null;
   state.goals = {};
+  state.equippedSet = null;
   await saveLogs();
   await saveMeasures();
   await saveProgram();
@@ -1123,6 +1234,7 @@ async function wipeAllData(){
   await storageSet('gt:badges', []);
   await storageSet('gt:battleChoice', null);
   await storageSet('gt:goals', {});
+  await storageSet('gt:equippedSet', null);
   await storageSet('gt:lastBackup', null);
   showToast('Datos borrados');
   render();
@@ -1719,6 +1831,9 @@ function attachTabHandlers(){
     });
     $$('[data-pick-family]').forEach(el=>{
       el.addEventListener('click', ()=>{ state.battlePickFamily = el.dataset.pickFamily; render(); });
+    });
+    $$('[data-equip]').forEach(el=>{
+      el.addEventListener('click', ()=> equiparSet(el.dataset.equip || null));
     });
     const backLink = $('#backToElementsLink');
     if(backLink) backLink.addEventListener('click', (e)=>{ e.preventDefault(); state.battlePickFamily = null; render(); });

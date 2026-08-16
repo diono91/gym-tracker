@@ -98,6 +98,58 @@ main{padding:4px 16px 24px;flex:1;}
 .meter-msg.q-mediocre{color:var(--yellow);background:var(--yellow-dim);border-color:rgba(242,183,5,.35);}
 .meter-msg.q-malo{color:var(--red);background:var(--red-dim);border-color:rgba(232,67,63,.35);}
 
+/* ---------- Ambientación: cabecera, escenario y fondos ---------- */
+/* La cabecera lleva el paisaje; el cuerpo, la tira vertical del camino. Ambos
+   con una capa oscura encima para que el texto siga siendo legible. */
+/* La cabecera es un escenario: paisaje de fondo, marca arriba y los
+   combatientes de pie sobre el suelo. Su borde inferior se disuelve con una
+   máscara para que no haya un corte seco contra el fondo del cuerpo. */
+.topbar{position:relative;isolation:isolate;display:block;padding:0 0 12px;}
+.topbar::before{content:'';position:absolute;inset:0;z-index:-2;
+  background:url('icons/tema/cabecera.webp') center bottom/cover no-repeat;
+  -webkit-mask-image:linear-gradient(180deg,#000 62%,rgba(0,0,0,.55) 84%,transparent 100%);
+  mask-image:linear-gradient(180deg,#000 62%,rgba(0,0,0,.55) 84%,transparent 100%);}
+/* Oscurecido fuerte arriba (para que se lea la marca) y suave abajo. */
+.topbar::after{content:'';position:absolute;inset:0;z-index:-1;
+  background:linear-gradient(180deg,rgba(11,12,13,.80) 0%,rgba(11,12,13,.50) 38%,rgba(11,12,13,.30) 70%,rgba(11,12,13,.55) 100%);
+  -webkit-mask-image:linear-gradient(180deg,#000 78%,transparent 100%);
+  mask-image:linear-gradient(180deg,#000 78%,transparent 100%);}
+.topbar-row{display:flex;align-items:center;gap:12px;padding:20px 18px 0;}
+
+.hero-scene{position:relative;height:150px;margin:6px 20px 0;display:flex;align-items:flex-end;
+  justify-content:flex-start;gap:12px;pointer-events:none;}
+.hero-scene.en-combate{justify-content:space-between;}
+.hs-hero{height:142px;width:auto;object-fit:contain;filter:drop-shadow(0 8px 12px rgba(0,0,0,.6));}
+.hs-foe{height:124px;width:auto;object-fit:contain;transform:scaleX(-1);
+  filter:drop-shadow(0 8px 12px rgba(0,0,0,.6));}
+.hs-foe.vencido{filter:grayscale(.85) drop-shadow(0 8px 12px rgba(0,0,0,.6));opacity:.65;}
+
+/* Fondo del cuerpo, solo en la pestaña Hoy. Cambia con el elemento del rival. */
+#app{isolation:isolate;}
+#app[data-tab="hoy"]::before{content:'';position:fixed;inset:0;z-index:-2;
+  max-width:520px;margin:0 auto;
+  background:url('icons/tema/fondo-normal.webp') top center/100% auto repeat-y;}
+#app[data-tab="hoy"]::after{content:'';position:fixed;inset:0;z-index:-1;max-width:520px;margin:0 auto;
+  background:rgba(11,12,13,.82);}
+#app[data-tab="hoy"][data-elem="fuego"]::before{background-image:url('icons/tema/fondo-fuego.webp');}
+#app[data-tab="hoy"][data-elem="tierra"]::before{background-image:url('icons/tema/fondo-tierra.webp');}
+#app[data-tab="hoy"][data-elem="viento"]::before{background-image:url('icons/tema/fondo-viento.webp');}
+#app[data-tab="hoy"][data-elem="agua"]::before{background-image:url('icons/tema/fondo-agua.webp');}
+#app[data-tab="hoy"][data-elem="dragon"]::before{background-image:url('icons/tema/fondo-fuego.webp');}
+
+/* ---------- Armería ---------- */
+.armory-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.armory-cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;
+  background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:5px;}
+.armory-cell img{width:100%;height:100%;object-fit:contain;}
+.armory-cell.locked img{filter:grayscale(1) brightness(.35);opacity:.5;}
+.armory-row-label{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted-2);margin:12px 2px 6px;display:flex;align-items:center;gap:8px;}
+.armory-row-label .done{color:var(--green);}
+.set-equip-btn{margin-left:auto;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  background:transparent;border:1px solid var(--blue);color:var(--blue);border-radius:999px;padding:3px 10px;cursor:pointer;}
+.set-equip-btn.on{background:var(--blue);color:#fff;}
+
 /* Oculta el input de archivo sin usar display:none, que en algunos navegadores
    móviles impide que el <label> lo active. */
 .visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
