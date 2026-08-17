@@ -788,6 +788,23 @@ async function chooseMonster(monsterId){
   await storageSet('gt:battleChoice', state.battleChoice);
   render();
 }
+// Abandonar el combate del día. Si ya se ha registrado algo, hay que empezar de
+// cero: se avisa y se borra, para que no se aproveche el avance con otro rival.
+async function abandonarCombate(){
+  const t = todayStr();
+  const registros = state.logs.filter(l=>l.date===t);
+  if(registros.length){
+    if(!confirm('Cambiar de rival borrará todo lo que has registrado hoy para empezar de cero. ¿Quieres continuar?')) return;
+    state.logs = state.logs.filter(l=>l.date!==t);
+    state.pendingSets = {};
+    await saveLogs();
+    showToast('Progreso de hoy borrado');
+  }
+  state.battleChoice = null;
+  state.battlePickFamily = null;
+  await storageSet('gt:battleChoice', null);
+  render();
+}
 function tierCardHtml(family, tierIndex){
   const tier = family.tiers[tierIndex];
   const unlocked = tierUnlocked(family, tierIndex);
@@ -858,7 +875,8 @@ function battleViewHtml(monsterId){
       <div class="battle-hp-label mono">${metCount} / ${result.items.length} condiciones de hoy</div>
     </div>
     <div class="battle-detail">${itemsHtml}</div>
-    <p class="io-desc">Ya has elegido tu rival de hoy. Mañana podrás enfrentarte a otro.</p>
+    <button class="add-slot-btn" id="changeMonsterBtn">${ICONS.swap} Cambiar de rival o salir del combate</button>
+    <p class="io-warn">Cambiar de rival borra lo registrado hoy para empezar de cero.</p>
   `;
 }
 function armoryHtml(){
@@ -1837,6 +1855,8 @@ function attachTabHandlers(){
     });
     const backLink = $('#backToElementsLink');
     if(backLink) backLink.addEventListener('click', (e)=>{ e.preventDefault(); state.battlePickFamily = null; render(); });
+    const changeBtn = $('#changeMonsterBtn');
+    if(changeBtn) changeBtn.addEventListener('click', abandonarCombate);
   }
 }
 
